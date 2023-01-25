@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
 
 env:
-  RG_NAME: "RG-AKS-Lab-10"
-  CLUSTER_NAME: "AKS-Lab-10"
+  RG_NAME: "RG-AKS-NAR"
+  CLUSTER_NAME: "NassimK8s"
 
   NAMESPACE: "coolapi-namespace"
   MYDEPLOYMENT: "coolapi-deployment"
   NAMESERVICE: "coolapi-service"
   MYAPP: "cool-api"
-  MYACR: "acrlab0010"
+  MYACR: "acrnass"
   MYIMAGE: "coolapi"
   MYVERSION: "1.0.0"
  
