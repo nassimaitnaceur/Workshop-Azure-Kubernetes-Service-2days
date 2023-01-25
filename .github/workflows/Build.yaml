@@ -1,90 +1,65 @@
-name: 2. Build application
+name: 3. Deploy application
+
 on:
   workflow_dispatch:
 
 env:
-  REGISTRY_NAME: "acrnass"
-  APP_NAME: "coolapi"
-  IMAGE_VERSION: "1.0.0"
+  RG_NAME: "RG-AKS-NAR"
+  CLUSTER_NAME: "NassimK8s"
 
+  NAMESPACE: "coolapi-namespace"
+  MYDEPLOYMENT: "coolapi-deployment"
+  NAMESERVICE: "coolapi-service"
+  MYAPP: "cool-api"
+  MYACR: "acrlab0010"
+  MYIMAGE: "coolapi"
+  MYVERSION: "1.0.0"
+ 
+  
 jobs:
-
-
-  Analyse-Code: # Premier job "Analyse de code static"
+  Build-Manifest:
     runs-on: ubuntu-latest
-    permissions: # https://docs.github.com/en/actions/using-jobs/assigning-permissions-to-jobs
-      actions: read # only required for workflows in private repositories https://github.com/github/codeql-action
-      contents: read # only required for workflows in private repositories https://github.com/github/codeql-action
-      security-events: write # required for all workflows https://github.com/github/codeql-action
-    strategy:
-      fail-fast: false # s'arrête s'il a une erreur dans la definition de la matrice
-      matrix: # https://docs.github.com/en/actions/using-jobs/using-a-build-matrix-for-your-jobs
-        language: [ 'javascript' ]
-    
+    environment:
+      name: Dev
+      url: ${{ steps.ip-pub.outputs.service-url }}
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v2 # https://github.com/github/codeql-action
-        with:
-          languages: ${{ matrix.language }} # https://docs.github.com/en/actions/using-jobs/using-a-build-matrix-for-your-jobs
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v2 # https://github.com/github/codeql-action
-
-
-  Test-Unitaire: # Deuxieme job "tests unitaires"
-    runs-on: ubuntu-latest 
-    needs: Analyse-Code # Declenchement du Job "test-unitaire" si le job "analyze-code" s"execute sans erreur 
-    strategy:
-      matrix:
-        node-version: [10.x, 12.x, 14.x, 15.x] # Matrice des versions Nodejs pour le test unitaire
-
-    steps:
-      - name: Checkout repo
         uses: actions/checkout@v2
 
-      - name: Use Node.js
-        uses: actions/setup-node@v1 # https://github.com/actions/setup-node
+      - name: Login Azure
+        uses: Azure/login@v1
         with:
-          node-version: ${{ matrix.node-version }} # application de la matrice
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Installation des dependences
-        run : |
-          cd ./Lab_10/API/ && npm install
-
-      - name: Tests unitaires
+      - name: Get AKS Credentials
         run: |
-          cd ./Lab_10/API/ && npm test
+          az aks get-credentials --resource-group ${{ env.RG_NAME }} --name ${{ env.CLUSTER_NAME }}
 
-
-  Build-Scan-Push: # Troisieme job "scan container image"
-    runs-on: ubuntu-latest
-    needs: Test-Unitaire
-    
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v2
-
-      - name: Login Azure Container Registry
+      - name: Modification des Build-Manifest
         run: |
-          docker login ${{ env.acrnass}}.azurecr.io --username ${{ secrets.cc17d45b-f7c1-4eb4-abc6-3a0a01cb6f5b}} --password ${{ secrets.6NS8Q~iP4cQgf756MtpmAsyoJYtsZ-hbTdelubcV }}
+          cd ./Lab_10/Manifest/
+          sed -i -e "s/my-namespace/${{ env.NAMESPACE }}/g" ./namespace.yaml
+          sed -i -e "s/my-namespace/${{ env.NAMESPACE }}/g" ./service.yaml
+          sed -i -e "s/my-service/${{ env.NAMESERVICE }}/g" ./service.yaml
+          sed -i -e "s/my-app/${{ env.MYAPP }}/g" ./service.yaml
+          sed -i -e "s/my-deployment/${{ env.MYDEPLOYMENT }}/g" ./deployment.yaml
+          sed -i -e "s/my-namespace/${{ env.NAMESPACE }}/g" ./deployment.yaml
+          sed -i -e "s/my-app/${{ env.MYAPP }}/g" ./deployment.yaml
+          sed -i -e "s/my-acr/${{ env.MYACR }}/g" ./deployment.yaml
+          sed -i -e "s/my-image/${{ env.MYIMAGE }}/g" ./deployment.yaml
+          sed -i -e "s/my-version/${{ env.MYVERSION }}/g" ./deployment.yaml    
 
-      - name: Build de l'image de l'application
+      - name: Deploy application
         run: |
-          cd ./Lab_10/API/ && docker build -t ${{ env.acrnass}}.azurecr.io/${{ env.coolapi }}:${{ env.1.0.0 }} .
-          docker image ls
+          kubectl apply -f ./Lab_10/Manifest/namespace.yaml
+          kubectl apply -f ./Lab_10/Manifest/deployment.yaml
+          kubectl apply -f ./Lab_10/Manifest/service.yaml
 
-      - name: Scan Image
-        uses: Azure/container-scan@v0 
-        id: container-scan
-        continue-on-error: true
-        with:
-          image-name: ${{ env.acrnass}}.azurecr.io/${{ env.coolapi }}:${{ env.1.0.0 }}
-
-      - name: Push de l'image de l'application
+      - name: Recuperation de IP Publique
+        id: ip-pub
         run: |
-          docker push ${{ env.acrnass}}.azurecr.io/${{ env.coolapi }}:${{ env.1.0.0 }}
-
+          sleep 30s
+          IP_SERVICE=$(kubectl get service --namespace=${{ env.NAMESPACE }} -o json | jq -r '.items[] | select(.metadata.name == "${{ env.NAMESERVICE }}") | .status.loadBalancer?|.ingress[]?|.ip')
+          echo "$IP_SERVICE"
+          echo "::set-output name=service-url::http://$IP_SERVICE"
